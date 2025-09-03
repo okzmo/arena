@@ -173,7 +173,7 @@ void test_edge_cases() {
 
   // Test NULL data
   result = okz_push_copy("null_test", NULL, 0);
-  if (result == 0) {
+  if (result != 0) {
       printf("Correctly handled NULL data with size 0\n");
   }
 }

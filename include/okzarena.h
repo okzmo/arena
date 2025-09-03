@@ -1,17 +1,23 @@
 #ifndef OKZARENA_H
 #define OKZARENA_H
 
-typedef struct OKZNode {
-  char* key;
-  void* data;
-  struct OKZNode* next;
-  struct OKZNode* prev;
-} OKZNode;
-
 typedef struct OKZArena {
-  OKZNode* head;
-  OKZNode* tail;
+  char* memory;
+  size_t size;
+  size_t used;
+
+  struct OKZEntry** table;
+  size_t table_size;
 } OKZArena;
+
+typedef struct OKZEntry {
+  char* key;
+  size_t offset;
+  size_t size;
+  struct OKZEntry* next;
+  int deleted;
+} OKZEntry;
+
 
 int okz_init(void);
 int okz_push_copy(const char* key, const void* data, size_t size);

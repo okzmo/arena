@@ -4,129 +4,151 @@
 #include <string.h>
 #include "okzarena.h"
 
-OKZArena* arena = NULL;
+#define INITIAL_ARENA_SIZE (64 * 1024) // 64KB
+#define INITIAL_TABLE_SIZE 1
+#define ALIGNMENT 8
+
+static OKZArena* arena = NULL;
+
+static size_t hash_string(const char* str) {
+  size_t hash = 5381;
+  int c;
+  while ((c = *str++)) {
+    hash = ((hash << 5) + hash) + c;
+  }
+  return hash;
+}
+
+static size_t align_size(size_t size) {
+  return (size + ALIGNMENT - 1) & ~(ALIGNMENT - 1);
+}
 
 int okz_init() {
   arena = malloc(sizeof(OKZArena));
   if (arena == NULL) return 1;
-  arena->head = arena->tail = NULL;
+
+  arena->memory = malloc(INITIAL_ARENA_SIZE);
+  if (arena->memory == NULL) {
+    free(arena);
+    return 1;
+  }
+
+  arena->size = INITIAL_ARENA_SIZE;
+  arena->used = 0;
+
+  arena->table_size = INITIAL_TABLE_SIZE;
+  arena->table = calloc(INITIAL_TABLE_SIZE, sizeof(OKZEntry*));
+  if (arena->table == NULL) {
+    free(arena->memory);
+    free(arena);
+    return 1;
+  }
 
   return 0;
 }
 
 int okz_push_copy(const char* key, const void* data, size_t size) {
-  if (key[0] == '\0' || !key || (!data && size)) return 1;
+  if (key[0] == '\0' || !key) return 1;
+  if (data == NULL || size <= 0) return 1;
 
-  // arena not initialized
-  if (arena == NULL) return 1;
-
-  OKZNode* node = malloc(sizeof(OKZNode));
-  if (node == NULL) return 1;
-
-  node->key = strdup(key);
-  if (node->key == NULL) {
-    free(node);
+  size_t aligned_size = align_size(size);
+  
+  if (arena->used + aligned_size > arena->size) {
+    // should grow but for now we fail
     return 1;
   }
 
-  node->prev = NULL;
-  node->next = NULL;
+  OKZEntry* entry = malloc(sizeof(OKZEntry));
+  if (entry == NULL) return 1;
 
-  node->data = malloc(size);
-  if (node->data == NULL) { 
-    free(node->key);
-    free(node);
+  entry->key = strdup(key);
+  if (!entry->key) {
+    free(entry);
     return 1;
   }
-  memcpy(node->data, data, size);
 
+  entry->offset = arena->used;
+  entry->size = size;
+  memcpy(arena->memory + arena->used, data, size);
+  entry->deleted = 0;
 
-  if (arena->head == NULL && arena->tail == NULL) {
-    arena->head = node;
-    arena->tail = node;
-    return 0;
-  }
+  arena->used += aligned_size;
 
-  node->prev = arena->tail;
-  arena->tail->next = node;
-  arena->tail = node;
+  size_t bucket = hash_string(key) % arena->table_size;
+  entry->next = arena->table[bucket];
+  arena->table[bucket] = entry;
 
   return 0;
 }
 
 void* okz_get_ptr(const char* key) {
-  if (arena == NULL) return NULL;
+  if (!arena || !key || key[0] == '\0') return NULL;
 
-  OKZNode* current = arena->head;
+  size_t bucket = hash_string(key) % arena->table_size;
+  OKZEntry* entry = arena->table[bucket];
 
-  while (current != NULL) {
-    if (strcmp(current->key, key) == 0) return current->data;
-    current = current->next;
+  while (entry) {
+    if (!entry->deleted && strcmp(entry->key, key) == 0) {
+      return arena->memory + entry->offset;
+    }
+    entry = entry->next;
   }
 
   return NULL;
 }
 
 int okz_release(const char* key) {
-  if (arena == NULL) return 1;
+  if (!arena || !key || key[0] == '\0') return 1;
 
-  OKZNode* current = arena->head;
+  size_t bucket = hash_string(key) % arena->table_size;
+  OKZEntry* entry = arena->table[bucket];
 
-  while (current != NULL) {
-    if (strcmp(current->key, key) == 0) break;
-    current = current->next;
+  while (entry) {
+    if (!entry->deleted && strcmp(entry->key, key) == 0) {
+      entry->deleted = 1;
+      free(entry->key);
+      entry->key = NULL;
+      return 0;
+    }
+    entry = entry->next;
   }
 
-  if (current == NULL) return 1;
-
-  if (current->prev) {
-    current->prev->next = current->next;
-  } else {
-    arena->head = current->next;
-  }
-
-  if (current->next) {
-    current->next->prev = current->prev;
-  } else {
-    arena->tail = current->prev;
-  }
-
-
-  free(current->key);
-  free(current->data);
-  free(current);
-
-  return 0;
+  return 1;
 }
 
 void okz_destroy() {
   if (!arena) return;
 
-  OKZNode* current = arena->head;
-  while (current != NULL) {
-    OKZNode* next = current->next;
-    free(current->key);
-    free(current->data);
-    free(current);
-    current = next;
+  for (size_t i = 0; i < arena->table_size; ++i) {
+    OKZEntry* entry = arena->table[i];
+
+    while (entry) {
+      OKZEntry* next = entry->next;
+      free(entry->key);
+      free(entry);
+      entry = next;
+    }
   }
 
+
+  free(arena->table);
+  free(arena->memory);
   free(arena);
   arena = NULL;
 }
 
 void debug_arena(void) {
-  OKZNode* current = arena->head;
-
-  while (current != NULL) {
-    printf("%s", current->key);
-
-    if (current->next != NULL) {
-      printf("<->");
-    }
-
-    current = current->next;
-  }
-
-  printf("\n");
+//   OKZNode* current = arena->head;
+//
+//   while (current != NULL) {
+//     printf("%s", current->key);
+//
+//     if (current->next != NULL) {
+//       printf("<->");
+//     }
+//
+//     current = current->next;
+//   }
+//
+//   printf("\n");
 }
