@@ -1,5 +1,7 @@
 #include <stdio.h>
 #include <okzarena.h>
+#include <stdlib.h>
+#include <string.h>
 
 // Game data structures
 typedef struct {
@@ -178,6 +180,19 @@ void test_edge_cases() {
   }
 }
 
+void test_arena_growth() {
+  printf("\n=== Testing Arena Growth ===\n");
+
+  size_t big = 80*1024;
+  unsigned char* blob = malloc(big);
+  memset(blob, 0xAB, big);
+
+  okz_push_copy("big_blob", blob, big);
+  debug_arena();
+
+  free(blob);
+}
+
 
 int main(void) {
   okz_init();
@@ -187,6 +202,7 @@ int main(void) {
   test_arrays_and_bulk_data();
   test_memory_management();
   test_edge_cases();
+  test_arena_growth();
 
   okz_destroy();
   return 0;

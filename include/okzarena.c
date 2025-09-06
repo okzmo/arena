@@ -48,14 +48,24 @@ int okz_init() {
 }
 
 int okz_push_copy(const char* key, const void* data, size_t size) {
-  if (key[0] == '\0' || !key) return 1;
+  if (!key || key[0] == '\0') return 1;
   if (data == NULL || size <= 0) return 1;
 
   size_t aligned_size = align_size(size);
   
   if (arena->used + aligned_size > arena->size) {
-    // should grow but for now we fail
-    return 1;
+    size_t new_size = arena->size * 2;
+    while (new_size < arena->used + aligned_size) {
+      new_size *=2;
+    }
+
+    char* new_memory = realloc(arena->memory, new_size);
+    if (new_memory == NULL) {
+      return 1;
+    }
+
+    arena->memory = new_memory;
+    arena->size = new_size;
   }
 
   OKZEntry* entry = malloc(sizeof(OKZEntry));
@@ -138,17 +148,18 @@ void okz_destroy() {
 }
 
 void debug_arena(void) {
-//   OKZNode* current = arena->head;
-//
-//   while (current != NULL) {
-//     printf("%s", current->key);
-//
-//     if (current->next != NULL) {
-//       printf("<->");
-//     }
-//
-//     current = current->next;
-//   }
-//
-//   printf("\n");
+  printf("Arena memory: %p\n", arena->memory);
+  printf("Arena size: %zu\n", arena->size);
+  printf("Arena used: %zu\n", arena->used);
+  printf("Arena table size: %zu\n", arena->table_size);
+  printf("Arena table:\n");
+  for (size_t i = 0; i < arena->table_size; ++i) {
+    printf("  Bucket %zu:\n", i);
+    OKZEntry* entry = arena->table[i];
+    while (entry) {
+      printf("    Key: %s, Offset: %zu, Size: %zu, Deleted: %d\n", entry->key, entry->offset, entry->size, entry->deleted);
+      entry = entry->next;
+    }
+  }
+  printf("\n");
 }
